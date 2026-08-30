@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cossert Chess AI</title>
+<style>
+*{box-sizing:border-box}
+:root{--sq:min(9.2vw,74px)}
+body{
+  margin:0;min-height:100vh;background:#f4f1ea;color:#191919;
+  font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+}
+.app{width:min(1180px,96vw);margin:24px auto;display:grid;grid-template-columns:auto 1fr;gap:28px;align-items:start}
+.left,.panel{background:#fff;border:1px solid #ddd7ca;border-radius:18px;box-shadow:0 12px 35px #00000012}
+.left{padding:20px}
+.title{display:flex;justify-content:space-between;align-items:end;gap:18px;margin-bottom:15px}
+h1{font-size:23px;margin:0}.tag{font-size:12px;color:#777}
+.boardWrap{display:grid;grid-template-columns:24px auto;grid-template-rows:auto 24px}
+.ranks{grid-column:1;grid-row:1;display:grid;grid-template-rows:repeat(8,var(--sq));align-items:center;text-align:center;font-weight:700;color:#777}
+.files{grid-column:2;grid-row:2;display:grid;grid-template-columns:repeat(8,var(--sq));align-items:center;text-align:center;font-weight:700;color:#777}
+#board{
+  grid-column:2;grid-row:1;display:grid;
+  grid-template-columns:repeat(8,var(--sq));grid-template-rows:repeat(8,var(--sq));
+  width:calc(var(--sq)*8);height:calc(var(--sq)*8);
+  border:3px solid #292929;border-radius:7px;overflow:hidden;
+}
+.square{
+  width:var(--sq);height:var(--sq);border:0;padding:0;margin:0;
+  display:flex;align-items:center;justify-content:center;
+  font-size:calc(var(--sq)*.72);line-height:1;cursor:pointer;
+  user-select:none;position:relative;font-family:"Apple Symbols","Segoe UI Symbol",serif;
+}
+.light{background:#eee5d2}.dark{background:#8d765f}
+.square.selected::after{content:"";position:absolute;inset:5px;border:4px solid #fff;border-radius:7px;box-shadow:0 0 0 2px #111}
+.square.target::before{content:"";position:absolute;width:18%;height:18%;border-radius:50%;background:#0008}
+.square:disabled{cursor:default}
+.panel{padding:20px;min-width:0}
+.status{font-size:20px;font-weight:800;margin-bottom:7px}.small{color:#777;font-size:13px;line-height:1.5}
+.buttons{display:flex;gap:9px;flex-wrap:wrap;margin:16px 0}
+button.ctrl{border:0;border-radius:10px;padding:11px 14px;background:#202020;color:white;font-weight:700;cursor:pointer}
+button.ctrl.secondary{background:#e9e5dc;color:#222}
+.eval{margin:12px 0;padding:12px;border-radius:11px;background:#f5f2ec;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+#log{height:340px;overflow:auto;background:#111;color:#eee;border-radius:12px;padding:14px;white-space:pre-wrap;font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace}
+.legend{margin-top:13px;font-size:12px;color:#777}
+@media(max-width:900px){
+  :root{--sq:min(10.5vw,64px)}
+  .app{grid-template-columns:1fr}.left{overflow:auto}
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <section class="left">
+    <div class="title">
+      <div><h1>Cossert Chess AI ♟️</h1><div class="tag">You are White · AI is Black</div></div>
+      <div class="tag">chess.cos → interpreter → board</div>
+    </div>
+    <div class="boardWrap">
+      <div class="ranks"><span>8</span><span>7</span><span>6</span><span>5</span><span>4</span><span>3</span><span>2</span><span>1</span></div>
+      <div id="board"></div>
+      <div class="files"><span>a</span><span>b</span><span>c</span><span>d</span><span>e</span><span>f</span><span>g</span><span>h</span></div>
+    </div>
+  </section>
+
+  <aside class="panel">
+    <div id="status" class="status">Press START GAME</div>
+    <div class="small">Click one of your pieces, then click its destination. The browser does not choose the AI move: <b>chess.cos</b> does.</div>
+    <div class="buttons">
+      <button class="ctrl" id="start">START GAME</button>
+      <button class="ctrl secondary" id="restart">RESTART</button>
+    </div>
+    <div class="eval">Cossert evaluation: <span id="eval">—</span></div>
+    <div id="log">Cossert console ready.</div>
+    <div class="legend">Static 8×8 board. The square dimensions never change when pieces move.</div>
+  </aside>
+</div>
+
+<script src="./interpreter.js"></script>
+<script>
+const PIECES={
+  wK:"♔",wQ:"♕",wR:"♖",wB:"♗",wN:"♘",wP:"♙",
+  bK:"♚",bQ:"♛",bR:"♜",bB:"♝",bN:"♞",bP:"♟"
+};
+const initial=[
+  "bR","bN","bB","bQ","bK","bB","bN","bR",
+  "bP","bP","bP","bP","bP","bP","bP","bP",
+  "","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","",
+  "wP","wP","wP","wP","wP","wP","wP","wP",
+  "wR","wN","wB","wQ","wK","wB","wN","wR"
+];
+const boardEl=document.getElementById("board");
+const logEl=document.getElementById("log");
+const statusEl=document.getElementById("status");
+const evalEl=document.getElementById("eval");
+let shownBoard=[...initial], selected=-1, vm=null, running=false;
+let pendingInput=null, inputQueue=[], outputLines=[], awaitingEval=false;
+
+function render(){
+  boardEl.innerHTML="";
+  for(let i=0;i<64;i++){
+    const r=Math.floor(i/8),c=i%8;
+    const b=document.createElement("button");
+    b.className="square "+((r+c)%2?"dark":"light")+(selected===i?" selected":"");
+    b.dataset.i=i;
+    b.textContent=PIECES[shownBoard[i]]||"";
+    b.title="abcdefgh"[c]+(8-r)+" · ID "+i;
+    b.onclick=()=>squareClick(i);
+    boardEl.appendChild(b);
+  }
+}
+function log(s){
+  if(logEl.textContent==="Cossert console ready.") logEl.textContent="";
+  logEl.textContent+=String(s)+"\n";
+  logEl.scrollTop=logEl.scrollHeight;
+}
+function squareClick(i){
+  if(!running||!pendingInput)return;
+  if(pendingInput.kind==="mode")return;
+  if(pendingInput.kind==="from"){
+    if(!shownBoard[i]?.startsWith("w")){statusEl.textContent="Choose a WHITE piece";return}
+    selected=i;render();feedInput(String(i));
+  }else if(pendingInput.kind==="to"){
+    feedInput(String(i));selected=-1;render();
+  }
+}
+function feedInput(v){
+  if(!pendingInput){inputQueue.push(v);return}
+  const p=pendingInput;pendingInput=null;p.resolve(v);
+}
+function ask(q){
+  log(q);
+  if(q.includes("Choose mode")){
+    statusEl.textContent="Starting Human vs Cossert AI…";
+    return Promise.resolve("2");
+  }
+  const kind=q.includes("FROM")?"from":q.includes("TO")?"to":"other";
+  statusEl.textContent=kind==="from"?"White to move — select a piece":kind==="to"?"Select destination":"Waiting for input";
+  return new Promise(resolve=>pendingInput={kind,resolve});
+}
+function parseCossertOutput(s){
+  const text=String(s);
+  log(text);
+  if(text==="WHITE TO MOVE.") statusEl.textContent="White to move";
+  if(text==="BLACK TO MOVE.") statusEl.textContent="Cossert AI is thinking…";
+  if(text==="CHECK!") statusEl.textContent="CHECK!";
+  if(text==="CHECKMATE.") statusEl.textContent="CHECKMATE";
+  if(text==="STALEMATE. DRAW.") statusEl.textContent="STALEMATE — DRAW";
+  if(text.includes("WINS.")) statusEl.textContent=text;
+  if(text==="COSSERT ENGINE EVALUATION:"){awaitingEval=true;return}
+  if(awaitingEval && /^-?\d/.test(text)){evalEl.textContent=text;awaitingEval=false}
+
+  // SHOWBOARD emits exactly eight lines beginning "8  " down to "1  ".
+  if(/^[1-8]\s\s/.test(text)){
+    outputLines.push(text);
+    if(outputLines.length===8){
+      const next=[];
+      for(const line of outputLines){
+        const cells=line.slice(3).trim().split(/\s+/);
+        for(const cell of cells) next.push(cell===".."?"":cell);
+      }
+      if(next.length===64){shownBoard=next;render()}
+      outputLines=[];
+    }
+  }
+}
+async function startGame(){
+  if(running)return;
+  running=true;selected=-1;shownBoard=[...initial];render();
+  logEl.textContent="";evalEl.textContent="—";statusEl.textContent="Loading chess.cos…";
+  try{
+    const res=await fetch("./chess.cos",{cache:"no-store"});
+    if(!res.ok)throw new Error("Could not load chess.cos. Run this through GitHub Pages or localhost.");
+    vm=new CossertInterpreter({output:parseCossertOutput,input:ask});
+    await vm.run(await res.text());
+    statusEl.textContent=statusEl.textContent.includes("WINS")?statusEl.textContent:"Game finished";
+  }catch(e){
+    statusEl.textContent="Cossert error";
+    log("ERROR: "+e.message);
+  }finally{
+    running=false;pendingInput=null;selected=-1;render();
+  }
+}
+document.getElementById("start").onclick=startGame;
+document.getElementById("restart").onclick=()=>location.reload();
+render();
+</script>
+</body>
+</html>
