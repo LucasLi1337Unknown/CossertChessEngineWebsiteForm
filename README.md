@@ -1,45 +1,36 @@
-# Cossert Chess Board AI
+# Cossert Chess Board AI — v0.2.1 FIXED
 
-A graphical browser chess game powered by the Cossert chess engine.
+This build fixes the catastrophic disappearing-king / disappearing-piece bug.
 
-## Architecture
+## What was broken
 
-- `index.html` — graphical 8x8 chess board, click controls, animation/state display
-- `interpreter.js` — runs Cossert in the browser
-- `chess.cos` — chess rules, legal move generation, king safety, check/checkmate, evaluation, and AI move selection
-- `README.md` — this file
+The AI simulated one candidate move, then called the legal-move generator while
+that simulation was still active. The legal-move generator performed more
+simulations using the SAME global undo variables. Those nested simulations
+overwrote the saved board state, so the outer undo could restore the wrong
+pieces. That is why a king could disappear.
 
-The browser UI sends your selected FROM/TO square IDs into the Cossert program. The Cossert program updates the position and chooses Black's move. The UI reads the board state printed by Cossert and redraws the pieces.
+## Fix
 
-If `chess.cos` is removed or broken, the AI cannot play.
+The AI now completely finishes and undoes each candidate simulation before any
+other move-generation pass can overwrite its undo state. The engine also gets
+basic development bonuses so equal-material moves do not make it mindlessly
+push whichever pawn happens to occur first.
 
-## Play
+## Chess correctness already enforced
 
-You are White. Click a White piece, then its destination. The Cossert AI responds as Black.
+- kings are never captured
+- a move that leaves your own king in check is illegal
+- check is detected from enemy attacks
+- checkmate/stalemate are distinguished by whether the side with zero legal
+  moves is currently in check
+- queen promotion is supported
 
-## Current engine limitations
+## Still NOT complete yet
 
-This build is based on the Cossert chess engine v0.1:
-- normal legal moves
-- check/checkmate/stalemate
-- self-check filtering
-- material evaluation
-- mate-in-one detection
-- automatic queen promotion
+Castling and en passant are NOT in this build. I am deliberately not claiming
+otherwise. Those require persistent move-history state (king/rook moved flags
+and the immediately previous double-pawn move) and should be implemented as
+real Cossert engine state rather than faked in JavaScript.
 
-Not yet implemented:
-- castling
-- en passant
-- underpromotion
-
-## GitHub Pages
-
-Upload all four files to the repository root, then enable GitHub Pages.
-
-For local testing:
-
-```bash
-python3 -m http.server 8000
-```
-
-Then open `http://localhost:8000`.
+All files stay in the repository root for GitHub Pages.
